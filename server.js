@@ -6,6 +6,11 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
+app.use(express.json({ limit: '5000mb' }));
+app.use(express.urlencoded({ extended: false, limit: '5000mb' }));
+
+require('./src/routes/authRoutes')(app);
+
 app.get('/', (req, res) => {
     res.sendFile(__dirname + '/index.html');
 });
@@ -15,7 +20,6 @@ io.on('connection', (socket) => {
 
     // Handle a user sending a message
     socket.on('chat message', (msg) => {
-        console.log(msg);
         let formattedMsg = {
             id: 10,
             text: msg,
