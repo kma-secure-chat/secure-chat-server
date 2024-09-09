@@ -7,3 +7,7 @@ exports.getUserInfo = async (id) => {
     }
     return result.rows[0];
 }
+
+exports.generateVerificationCode = () => {
+    return Math.floor(100000 + Math.random() * 900000);
+}

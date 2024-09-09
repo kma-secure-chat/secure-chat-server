@@ -1,6 +1,8 @@
 const pool = require("../config/pool");
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
+const nodemailer = require('nodemailer');
+const { generateVerificationCode, getUserInfo } = require("../utils/authUtils");
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret';
 
@@ -35,7 +37,7 @@ exports.loginController = async (req, res) => {
 exports.registerController = async (req, res) => {
     const { email, fullname, username, password } = req.body;
     const hashedPassword = await bcrypt.hash(password, 10);
-    
+
     if (!email) {
         return res.status(400).send({
             message: 'Email không được để trống!'
@@ -54,23 +56,123 @@ exports.registerController = async (req, res) => {
         });
     }
 
-    pool.query(`
+    try {
+        const data = await pool.query(`
             INSERT INTO users (email, fullname, username, password) 
             VALUES ($1, $2, $3, $4)
             RETURNING *
         `,
-        [email, fullname, username, hashedPassword], (error, results) => {
-            if (error) {
-                throw error;
-            }
+            [email, fullname, username, hashedPassword])
+        const user = data.rows[0];
 
-            res.status(201).send({
-                message: 'Đăng ký thành công!',
-                data: results.rows[0]
-            });
+        const VERIFICATION_CODE = generateVerificationCode();
+        const transporter = nodemailer.createTransport({
+            service: 'gmail',
+            auth: {
+                user: process.env.EMAIL,
+                pass: process.env.EMAIL_PASSWORD
+            }
         });
-}
+
+        await pool.query(`
+            INSERT INTO email_verifications (user_id, verification_code, expires_at, created_at)
+            VALUES ($1, $2, NOW() + INTERVAL '5 minutes', NOW())
+        `, [user.id, VERIFICATION_CODE]);
+
+        const mailOptions = {
+            from: process.env.EMAIL,
+            to: email,
+            subject: 'Xác thực tài khoản từ ứng dụng SecureChat',
+            text: `Mã xác thực của bạn là: ${VERIFICATION_CODE}, mã này sẽ hết hạn sau 5 phút. Vui lòng không chia sẻ mã này với bất kỳ ai.`
+        };
+
+        transporter.sendMail(mailOptions, function (error, info) {
+            if (error) {
+                console.log(error);
+            } else {
+                console.log('Email sent: ' + info.response);
+            }
+        });
+
+
+        res.status(201).send({
+            message: 'Đăng ký thành công, vui lòng kiểm tra hòm thư của bạn!',
+            data: user
+        });
+    } catch (error) {
+        console.log(error);
+        res.status(400).send({
+            message: 'Có lỗi xảy ra, vui lòng thử lại sau!'
+        });
+    }
+};
 
 exports.meController = async (req, res) => {
     res.status(200).send(req.user);
+};
+
+exports.verifyEmailController = async (req, res) => {
+    const { user_id, code } = req.body;
+    console.log(user_id, code);
+    
+    const result = await pool.query(`
+        SELECT * FROM email_verifications 
+        WHERE user_id = $1 AND verification_code = $2 AND expires_at > NOW()
+        ORDER BY created_at DESC
+        LIMIT 1
+    `, [user_id, code]);
+
+    if (result.rows.length === 0) {
+        return res.status(400).send({
+            message: 'Mã xác thực không hợp lệ hoặc đã hết hạn!'
+        });
+    }
+
+    await pool.query(`
+        UPDATE users
+        SET is_verified = true
+        WHERE id = $1
+    `, [user_id]);
+
+    res.status(200).send({
+        message: 'Xác thực email thành công!'
+    });
+};
+
+exports.resendVerificationCodeController = async (req, res) => {
+    const { user_id } = req.body;
+    const VERIFICATION_CODE = generateVerificationCode();
+    const transporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: {
+            user: process.env.EMAIL,
+            pass: process.env.EMAIL_PASSWORD
+        }
+    });
+
+    const user = await getUserInfo(user_id);
+
+    await pool.query(`
+        INSERT INTO email_verifications (user_id, verification_code, expires_at, created_at)
+        VALUES ($1, $2, NOW() + INTERVAL '5 minutes', NOW())
+    `, [user_id, VERIFICATION_CODE]);
+
+    const mailOptions = {
+        from: process.env.EMAIL,
+        to: user.email,
+        subject: 'Xác thực tài khoản từ ứng dụng SecureChat',
+        text: `Mã xác thực của bạn là: ${VERIFICATION_CODE}, mã này sẽ hết hạn sau 5 phút. Vui lòng không chia sẻ mã này với bất kỳ ai.`
+    };
+
+    transporter.sendMail(mailOptions, function (error, info) {
+        if (error) {
+            console.log(error);
+        } else {
+            console.log('Email sent: ' + info.response);
+        }
+    });
+
+    res.status(200).send({
+        message: 'Gửi lại mã xác thực thành công!'
+    });
 }
