@@ -10,6 +10,7 @@ app.use(express.json({ limit: '5000mb' }));
 app.use(express.urlencoded({ extended: false, limit: '5000mb' }));
 
 require('./src/routes/authRoutes')(app);
+require('./src/routes/chatRoutes')(app);
 
 app.get('/', (req, res) => {
     res.sendFile(__dirname + '/index.html');
