@@ -1,35 +1,44 @@
+const pool = require('../config/pool');
+
 // Danh sách lưu trữ người dùng và socket ID
 const users = {};
 
 module.exports = (io) => {
     io.on('connection', (socket) => {
-        // Khi người dùng kết nối, lưu thông tin username và socket ID
-        const username = socket.user.username;
-        users[username] = socket.id;  // Lưu socket ID theo username
+        console.log('A user connected:', socket.id);
 
-        console.log(`${username} đã kết nối với socket ID: ${socket.id}`);
+        // Xử lý khi người dùng đăng nhập, lưu thông tin userID và socketID
+        socket.on('user_connected', (userId) => {
+            users[userId] = socket.id;
+            console.log(`User ${userId} connected with socket ID ${socket.id}`);
+        });
 
-        // Xử lý khi nhận tin nhắn
-        socket.on('private_message', (data) => {
-            const { recipient, message } = data;
-
-            // Tìm socket ID của người nhận
-            const recipientSocketId = users[recipient];
-            if (recipientSocketId) {
-                // Gửi tin nhắn tới đúng người
-                io.to(recipientSocketId).emit('private_message', {
-                    sender: username,
-                    message: message
+        // Nhận tin nhắn từ một người dùng
+        socket.on('send_message', async ({ conversationId, senderId, receiverId, message }) => {
+            const receiverSocketId = users[receiverId];
+            const messageContent = await pool.query('INSERT INTO messages (conversation_id, sender_id, content, created_at, is_read, is_deleted) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *', [conversationId, senderId, message, new Date(), false, false]);
+            
+            if (receiverSocketId) {
+                // Gửi tin nhắn cho người nhận (receiver)
+                io.to(receiverSocketId).emit('receive_message', {
+                    senderId,
+                    message: messageContent.rows[0]
                 });
             } else {
-                console.log(`Người dùng ${recipient} không kết nối`);
+                console.log('Receiver is not online');
             }
         });
 
         // Xử lý khi người dùng ngắt kết nối
         socket.on('disconnect', () => {
-            console.log(`${username} đã ngắt kết nối`);
-            delete users[username];  // Xóa người dùng khi ngắt kết nối
+            // Tìm và xóa người dùng ra khỏi danh sách users
+            for (let userId in users) {
+                if (users[userId] === socket.id) {
+                    delete users[userId];
+                    console.log(`User ${userId} disconnected`);
+                    break;
+                }
+            }
         });
     });
 };

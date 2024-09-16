@@ -6,6 +6,8 @@ exports.getConversations = async (req, res) => {
                 c.id,
                 CASE WHEN c.user_one_id = $1 THEN u2.fullname ELSE u1.fullname
                 END AS name,
+                c.user_one_id,
+                c.user_two_id,
                 m.content as last_message,
                 m.created_at as last_message_time
             FROM
