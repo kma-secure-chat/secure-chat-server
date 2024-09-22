@@ -45,7 +45,22 @@ exports.createNewConversations = async (req, res) => {
 exports.getMessages = async (req, res) => {
     const { conversation_id } = req.query;
 
-    pool.query('SELECT * FROM messages WHERE conversation_id = $1', [conversation_id], (error, results) => {
+    pool.query(`
+        SELECT 
+            m.*, 
+            COALESCE(json_agg(a.*) FILTER (WHERE a.id IS NOT NULL), '[]') AS attachments 
+        FROM 
+            messages m 
+        LEFT JOIN 
+            attachments a 
+        ON 
+            m.id = a.message_id 
+        WHERE 
+            m.conversation_id = $1 
+        GROUP BY 
+            m.id
+        ORDER BY m.created_at ASC
+    `, [conversation_id], (error, results) => {
         if (error) {
             throw error;
         }
