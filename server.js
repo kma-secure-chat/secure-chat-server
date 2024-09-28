@@ -34,6 +34,7 @@ app.use(express.urlencoded({ extended: false, limit: '5000mb' }));
 
 require('./src/routes/authRoutes')(app);
 require('./src/routes/chatRoutes')(app, upload);
+require('./src/routes/contactRoutes')(app);
 
 require('./src/listeners/chatListener')(io);
 
