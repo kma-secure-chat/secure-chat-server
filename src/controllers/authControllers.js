@@ -114,7 +114,7 @@ exports.meController = async (req, res) => {
 exports.verifyEmailController = async (req, res) => {
     const { user_id, code } = req.body;
     console.log(user_id, code);
-    
+
     const result = await pool.query(`
         SELECT * FROM email_verifications 
         WHERE user_id = $1 AND verification_code = $2 AND expires_at > NOW()
@@ -176,3 +176,61 @@ exports.resendVerificationCodeController = async (req, res) => {
         message: 'Gửi lại mã xác thực thành công!'
     });
 }
+
+exports.updateAvatarController = async (req, res) => {
+    const { avatar_path } = req.body;
+    const user_id = req.user.id;
+
+    if (!avatar_path) {
+        return res.status(400).send({
+            message: 'URL ảnh đại diện không được để trống!'
+        });
+    }
+
+    try {
+        await pool.query(`
+            UPDATE users
+            SET avatar_path = $1
+            WHERE id = $2
+        `, [avatar_path, user_id]);
+
+        res.status(200).send({
+            message: 'Cập nhật ảnh đại diện thành công!'
+        });
+    } catch (error) {
+        console.log(error);
+        res.status(400).send({
+            message: 'Có lỗi xảy ra, vui lòng thử lại sau!'
+        });
+    }
+};
+
+exports.updateFullnameController = async (req, res) => {
+    const { fullname } = req.body;
+    const user_id = req.user.id;
+    console.log('usae id', user_id);
+    
+
+    if (!fullname) {
+        return res.status(400).send({
+            message: 'Họ tên không được để trống!'
+        });
+    }
+
+    try {
+        await pool.query(`
+            UPDATE users
+            SET fullname = $1
+            WHERE id = $2
+        `, [fullname, user_id]);
+
+        res.status(200).send({
+            message: 'Cập nhật họ tên thành công!'
+        });
+    } catch (error) {
+        console.log(error);
+        res.status(400).send({
+            message: 'Có lỗi xảy ra, vui lòng thử lại sau!'
+        });
+    }
+};

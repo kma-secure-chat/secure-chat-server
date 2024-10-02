@@ -22,6 +22,7 @@ exports.getConversations = async (req, res) => {
                 c.id,
                 CASE WHEN c.user_one_id = $1 THEN u2.fullname ELSE u1.fullname
                 END AS name,
+                CASE WHEN c.user_one_id = $1 THEN u2.avatar_path ELSE u1.avatar_path END AS avatar,
                 c.user_one_id,
                 c.user_two_id,
                 m.content AS last_message,
