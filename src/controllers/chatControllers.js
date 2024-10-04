@@ -18,34 +18,45 @@ exports.findConversation = async (req, res) => {
 
 exports.getConversations = async (req, res) => {
     pool.query(`
-            SELECT
-                c.id,
-                CASE WHEN c.user_one_id = $1 THEN u2.fullname ELSE u1.fullname
-                END AS name,
-                CASE WHEN c.user_one_id = $1 THEN u2.avatar_path ELSE u1.avatar_path END AS avatar,
-                c.user_one_id,
-                c.user_two_id,
-                m.content AS last_message,
-                m.created_at AS last_message_time
-            FROM
-                conversations c
-            JOIN
-                users u1 ON u1.id = c.user_one_id
-            JOIN 
-                users u2 ON u2.id = c.user_two_id
-            LEFT JOIN
-                (
-                    SELECT 
-                        DISTINCT ON (conversation_id) conversation_id, content, created_at
-                    FROM 
-                        messages
-                    ORDER BY 
-                        conversation_id, created_at DESC
-                ) m ON m.conversation_id = c.id
-            WHERE
-                c.user_one_id = $1 OR c.user_two_id = $1;
-
-        `, [req.user.id], (error, results) => {
+        SELECT
+            c.id,
+            CASE WHEN c.user_one_id = $1 THEN u2.fullname ELSE u1.fullname END AS name,
+            CASE WHEN c.user_one_id = $1 THEN u2.avatar_path ELSE u1.avatar_path END AS avatar,
+            c.user_one_id,
+            c.user_two_id,
+            c.message_expire_minutes,
+            m.content AS last_message,
+            m.created_at AS last_message_time,
+            COALESCE(unseen.unseen_count, 0) AS unseen_count
+        FROM
+            conversations c
+        JOIN
+            users u1 ON u1.id = c.user_one_id
+        JOIN 
+            users u2 ON u2.id = c.user_two_id
+        LEFT JOIN
+            (
+                SELECT 
+                    DISTINCT ON (conversation_id) conversation_id, content, created_at
+                FROM 
+                    messages
+                ORDER BY 
+                    conversation_id, created_at DESC
+            ) m ON m.conversation_id = c.id
+        LEFT JOIN
+            (
+                SELECT 
+                    conversation_id, COUNT(*) AS unseen_count
+                FROM 
+                    messages
+                WHERE 
+                    is_read = false AND sender_id != $1
+                GROUP BY 
+                    conversation_id
+            ) unseen ON unseen.conversation_id = c.id
+        WHERE
+            c.user_one_id = $1 OR c.user_two_id = $1;
+    `, [req.user.id], (error, results) => {
         if (error) {
             throw error;
         }
@@ -63,6 +74,7 @@ exports.getConversation = async (req, res) => {
                 END AS name,
                 c.user_one_id,
                 c.user_two_id,
+                c.message_expire_minutes,
                 m.content as last_message,
                 m.created_at as last_message_time
             FROM
@@ -101,14 +113,49 @@ exports.createNewConversations = async (req, res) => {
     });
 };
 
+exports.setConversationMessageExpireMinutes = async (req, res) => {
+    const { message_expire_minutes } = req.body;
+    const { conversation_id } = req.params;
+
+    pool.query('UPDATE conversations SET message_expire_minutes = $1 WHERE id = $2 RETURNING *', [message_expire_minutes, conversation_id], (error, results) => {
+        if (error) {
+            throw error;
+        }
+        if (results.rows.length > 0) {
+            res.status(200).send({
+                message: `Đã cập nhật thời gian hết hạn tin nhắn của cuộc trò chuyện thành ${message_expire_minutes} phút`,
+                data: results.rows[0]
+            });
+        } else {
+            res.status(404).send({ message: 'Không tìm thấy cuộc trò chuyện !' });
+        }
+    });
+};
+
 exports.getMessages = async (req, res) => {
     const { conversation_id } = req.query;
     const { limit = 10 } = req.query;
 
+    await pool.query(`
+        UPDATE messages
+        SET is_read = true
+        WHERE conversation_id = $1 AND sender_id != $2 AND is_read = false
+    `, [conversation_id, req.user.id]);
+
     pool.query(`
         WITH last_messages AS (
             SELECT 
-                m.*, 
+                m.id,
+                m.conversation_id,
+                m.sender_id,
+                CASE 
+                    WHEN (m.expired_at IS NOT NULL AND m.expired_at < NOW()) or is_deleted THEN NULL
+                    ELSE m.content
+                END AS content,
+                m.created_at,
+                m.is_read,
+                m.is_deleted,
+                m.expired_at,
                 COALESCE(json_agg(a.*) FILTER (WHERE a.id IS NOT NULL), '[]') AS attachments 
             FROM 
                 messages m 
@@ -127,7 +174,6 @@ exports.getMessages = async (req, res) => {
         SELECT *
         FROM last_messages
         ORDER BY created_at ASC;
-
     `, [conversation_id, limit], (error, results) => {
         if (error) {
             throw error;
@@ -138,11 +184,38 @@ exports.getMessages = async (req, res) => {
 
 exports.sendMessage = async (req, res) => {
     const { conversation_id, content } = req.body;
+    // Get the message expiration time for the conversation
+    const { rows } = await pool.query('SELECT message_expire_minutes FROM conversations WHERE id = $1', [conversation_id]);
 
-    pool.query('INSERT INTO messages (conversation_id, sender_id, content, created_at, is_read, is_deleted) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *', [conversation_id, req.user.id, content, new Date(), false, false], (error, results) => {
+    if (rows.length === 0) {
+        return res.status(404).send({ message: 'Conversation not found' });
+    }
+
+    const messageExpireMinutes = rows[0].message_expire_minutes;
+
+    // Insert the message with the expiration time
+    const expiredAt = messageExpireMinutes ? new Date(Date.now() + messageExpireMinutes * 60000) : null;
+
+
+    pool.query('INSERT INTO messages (conversation_id, sender_id, content, created_at, is_read, is_deleted, expired_at) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *', [conversation_id, req.user.id, content, new Date(), false, false, expiredAt], (error, results) => {
         if (error) {
             throw error;
         }
         res.status(201).send(results.rows[0]);
     });
 }
+
+exports.deleteMessage = async (req, res) => {
+    const { message_id } = req.params;
+
+    pool.query('UPDATE messages SET is_deleted = true WHERE id = $1 RETURNING *', [message_id], (error, results) => {
+        if (error) {
+            throw error;
+        }
+        if (results.rows.length > 0) {
+            res.status(200).send(results.rows[0]);
+        } else {
+            res.status(404).send({ message: 'Message not found' });
+        }
+    });
+};
