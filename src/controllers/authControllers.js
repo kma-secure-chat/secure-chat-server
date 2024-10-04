@@ -234,3 +234,31 @@ exports.updateFullnameController = async (req, res) => {
         });
     }
 };
+
+exports.setPublicKeyController = async (req, res) => {
+    const { public_key } = req.body;
+    const user_id = req.user.id;
+
+    if (!public_key) {
+        return res.status(400).send({
+            message: 'Khóa công khai không được để trống!'
+        });
+    }
+
+    try {
+        await pool.query(`
+            UPDATE users
+            SET public_key = $1
+            WHERE id = $2
+        `, [public_key, user_id]);
+
+        res.status(200).send({
+            message: 'Cập nhật khóa công khai thành công!'
+        });
+    } catch (error) {
+        console.log(error);
+        res.status(400).send({
+            message: 'Có lỗi xảy ra, vui lòng thử lại sau!'
+        });
+    }
+};

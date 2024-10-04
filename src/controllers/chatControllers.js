@@ -22,6 +22,7 @@ exports.getConversations = async (req, res) => {
             c.id,
             CASE WHEN c.user_one_id = $1 THEN u2.fullname ELSE u1.fullname END AS name,
             CASE WHEN c.user_one_id = $1 THEN u2.avatar_path ELSE u1.avatar_path END AS avatar,
+            CASE WHEN c.user_one_id = $1 THEN u2.public_key ELSE u1.public_key END AS public_key,
             c.user_one_id,
             c.user_two_id,
             c.message_expire_minutes,
@@ -183,12 +184,19 @@ exports.getMessages = async (req, res) => {
 }
 
 exports.sendMessage = async (req, res) => {
-    const { conversation_id, content } = req.body;
+    const { conversation_id, content, attachments } = req.body;
     // Get the message expiration time for the conversation
     const { rows } = await pool.query('SELECT message_expire_minutes FROM conversations WHERE id = $1', [conversation_id]);
 
     if (rows.length === 0) {
         return res.status(404).send({ message: 'Conversation not found' });
+    }
+
+    if (attachments) {
+        for (let attachment of attachments) {
+            await pool.query('INSERT INTO attachments (message_id, file_path, file_type, created_at) VALUES ($1, $2, $3, $4)',
+                [messageContent.rows[0].id, attachment.path, attachment.mimetype, new Date()]);
+        }
     }
 
     const messageExpireMinutes = rows[0].message_expire_minutes;
