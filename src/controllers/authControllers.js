@@ -13,7 +13,7 @@ exports.loginController = async (req, res) => {
             throw error;
         }
         if (results.rows.length === 0) {
-            return res.status(401).send({
+            return res.status(400).send({
                 message: 'Thông tin đăng nhập không chính xác!'
             });
         }
@@ -27,7 +27,7 @@ exports.loginController = async (req, res) => {
                 message: 'Đăng nhập thành công!'
             });
         } else {
-            return res.status(401).send({
+            return res.status(400).send({
                 message: 'Thông tin đăng nhập không chính xác!'
             });
         }
@@ -98,6 +98,41 @@ exports.registerController = async (req, res) => {
         res.status(201).send({
             message: 'Đăng ký thành công, vui lòng kiểm tra hòm thư của bạn!',
             data: user
+        });
+    } catch (error) {
+        console.log(error);
+        res.status(400).send({
+            message: 'Có lỗi xảy ra, vui lòng thử lại sau!'
+        });
+    }
+};
+
+exports.changePasswordController = async (req, res) => {
+    const { old_password, new_password } = req.body;
+    const user_id = req.user.id;
+
+    if (!old_password || !new_password) {
+        return res.status(400).send({
+            message: 'Mật khẩu cũ và mật khẩu mới không được để trống!'
+        });
+    }
+
+    try {
+        const result = await pool.query('SELECT password FROM users WHERE id = $1', [user_id]);
+        const user = result.rows[0];
+
+        const isPasswordMatch = await bcrypt.compare(old_password, user.password);
+        if (!isPasswordMatch) {
+            return res.status(400).send({
+                message: 'Mật khẩu cũ không chính xác!'
+            });
+        }
+
+        const hashedNewPassword = await bcrypt.hash(new_password, 10);
+        await pool.query('UPDATE users SET password = $1 WHERE id = $2', [hashedNewPassword, user_id]);
+
+        res.status(200).send({
+            message: 'Đổi mật khẩu thành công!'
         });
     } catch (error) {
         console.log(error);
