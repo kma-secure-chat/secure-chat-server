@@ -30,6 +30,7 @@ exports.getConversations = async (req, res) => {
             c.user_two_id,
             c.message_expire_minutes,
             m.content AS last_message,
+            m.id AS last_message_id,
             m.created_at AS last_message_time,
             COALESCE(unseen.unseen_count, 0) AS unseen_count
         FROM
@@ -41,7 +42,7 @@ exports.getConversations = async (req, res) => {
         LEFT JOIN
             (
                 SELECT 
-                    DISTINCT ON (conversation_id) conversation_id, content, created_at
+                    DISTINCT ON (conversation_id) conversation_id, content, created_at, id
                 FROM 
                     messages
                 ORDER BY 

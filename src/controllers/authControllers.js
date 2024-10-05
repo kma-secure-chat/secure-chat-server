@@ -20,7 +20,7 @@ exports.loginController = async (req, res) => {
         const user = results.rows[0];
         const isPasswordMatch = await bcrypt.compare(password, user.password);
         if (isPasswordMatch) {
-            const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '1h' });
+            const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '30d' });
             user.jwt = token;
             return res.status(200).send({
                 data: user,
