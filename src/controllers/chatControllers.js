@@ -3,17 +3,20 @@ const pool = require("../config/pool");
 exports.findConversation = async (req, res) => {
     const { receiver_id } = req.params;
 
-    pool.query('SELECT * FROM conversations WHERE (user_one_id = $1 AND user_two_id = $2) OR (user_one_id = $2 AND user_two_id = $1)', [req.user.id, receiver_id], (error, results) => {
-        if (error) {
-            throw error;
-        }
+    pool.query(`SELECT * FROM conversations 
+        WHERE (user_one_id = $1 AND user_two_id = $2) 
+        OR (user_one_id = $2 AND user_two_id = $1)`,
+        [req.user.id, receiver_id], (error, results) => {
+            if (error) {
+                throw error;
+            }
 
-        if (results.rows.length > 0) {
-            res.status(200).send(results.rows[0]);
-        } else {
-            res.status(200).send(null);
-        }
-    });
+            if (results.rows.length > 0) {
+                res.status(200).send(results.rows[0]);
+            } else {
+                res.status(200).send(null);
+            }
+        });
 };
 
 exports.getConversations = async (req, res) => {
@@ -71,8 +74,9 @@ exports.getConversation = async (req, res) => {
     pool.query(`
         SELECT
             c.id,
-                CASE WHEN c.user_one_id = $1 THEN u2.fullname ELSE u1.fullname
-                END AS name,
+                CASE WHEN c.user_one_id = $2 THEN u2.fullname ELSE u1.fullname END AS name,
+                CASE WHEN c.user_one_id = $1 THEN u2.avatar_path ELSE u1.avatar_path END AS avatar,
+                CASE WHEN c.user_one_id = $1 THEN u2.public_key ELSE u1.public_key END AS public_key,
                 c.user_one_id,
                 c.user_two_id,
                 c.message_expire_minutes,
@@ -91,7 +95,7 @@ exports.getConversation = async (req, res) => {
             LIMIT 1) m ON m.conversation_id = c.id
         WHERE
             c.id = $1
-    `, [conversation_id], (error, results) => {
+    `, [conversation_id, req.user.id], (error, results) => {
         if (error) {
             throw error;
         }
@@ -185,32 +189,45 @@ exports.getMessages = async (req, res) => {
 
 exports.sendMessage = async (req, res) => {
     const { conversation_id, content, attachments } = req.body;
-    // Get the message expiration time for the conversation
-    const { rows } = await pool.query('SELECT message_expire_minutes FROM conversations WHERE id = $1', [conversation_id]);
 
-    if (rows.length === 0) {
-        return res.status(404).send({ message: 'Conversation not found' });
-    }
+    try {
+        // Get the message expiration time for the conversation
+        const { rows } = await pool.query('SELECT message_expire_minutes FROM conversations WHERE id = $1', [conversation_id]);
+        console.log('rows', rows);
 
-    if (attachments) {
-        for (let attachment of attachments) {
-            await pool.query('INSERT INTO attachments (message_id, file_path, file_type, created_at) VALUES ($1, $2, $3, $4)',
-                [messageContent.rows[0].id, attachment.path, attachment.mimetype, new Date()]);
+        if (rows.length === 0) {
+            return res.status(404).send({ message: 'Conversation not found' });
         }
-    }
 
-    const messageExpireMinutes = rows[0].message_expire_minutes;
+        const messageExpireMinutes = rows[0].message_expire_minutes;
+        const expiredAt = messageExpireMinutes ? new Date(Date.now() + messageExpireMinutes * 60000) : null;
 
-    // Insert the message with the expiration time
-    const expiredAt = messageExpireMinutes ? new Date(Date.now() + messageExpireMinutes * 60000) : null;
+        // Insert the message with the expiration time
+        const messageResult = await pool.query(
+            'INSERT INTO messages (conversation_id, sender_id, content, created_at, is_read, is_deleted, expired_at) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
+            [conversation_id, req.user.id, content, new Date(), false, false, expiredAt]
+        );
+
+        console.log('messageResult', messageResult.rows[0].id);
 
 
-    pool.query('INSERT INTO messages (conversation_id, sender_id, content, created_at, is_read, is_deleted, expired_at) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *', [conversation_id, req.user.id, content, new Date(), false, false, expiredAt], (error, results) => {
-        if (error) {
-            throw error;
+        const messageId = messageResult.rows[0].id;
+
+        // Insert attachments if any
+        if (attachments) {
+            for (let attachment of attachments) {
+                await pool.query(
+                    'INSERT INTO attachments (message_id, file_path, file_type, created_at) VALUES ($1, $2, $3, $4)',
+                    [messageId, attachment.path, attachment.mimetype, new Date()]
+                );
+            }
         }
-        res.status(201).send(results.rows[0]);
-    });
+
+        res.status(201).send(messageResult.rows[0]);
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: 'An error occurred while sending the message' });
+    }
 }
 
 exports.deleteMessage = async (req, res) => {
