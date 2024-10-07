@@ -7,7 +7,8 @@ const { generateVerificationCode, getUserInfo } = require("../utils/authUtils");
 const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret';
 
 exports.loginController = async (req, res) => {
-    const { identifier, password } = req.body;
+    let { identifier, password } = req.body;
+    identifier = identifier.toLowerCase();
     pool.query('SELECT * FROM users WHERE email = $1 or username = $1', [identifier], async (error, results) => {
         if (error) {
             throw error;
@@ -58,8 +59,8 @@ exports.registerController = async (req, res) => {
 
     try {
         const data = await pool.query(`
-            INSERT INTO users (email, fullname, username, password) 
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO users (email, fullname, username, password, avatar) 
+            VALUES ($1, $2, $3, $4, 'uploads/sample_avatar.jpg')
             RETURNING *
         `,
             [email, fullname, username, hashedPassword])
