@@ -218,8 +218,8 @@ exports.sendMessage = async (req, res) => {
         if (attachments) {
             for (let attachment of attachments) {
                 await pool.query(
-                    'INSERT INTO attachments (message_id, file_path, file_type, created_at) VALUES ($1, $2, $3, $4)',
-                    [messageId, attachment.path, attachment.mimetype, new Date()]
+                    'INSERT INTO attachments (message_id, file_path, file_type, created_at, size) VALUES ($1, $2, $3, $4, $5)',
+                    [messageId, attachment.path, attachment.mimetype, new Date(), attachment.size]
                 );
             }
         }
