@@ -2,12 +2,14 @@ const { createNewConversations, sendMessage, getConversations, getMessages, find
 const { verifyJwt } = require('../middleware/verifyJwt');
 const { setConversationMessageExpireMinutes } = require("../controllers/chatControllers");
 const { deleteMessage } = require("../controllers/chatControllers");
+const { setConversationBackground } = require("../controllers/chatControllers");
 
 module.exports = (app, upload) => {
     app.get('/api/conversations', verifyJwt, getConversations);
     app.get('/api/conversation/:conversation_id', verifyJwt, getConversation);
     app.post('/api/conversation/new', verifyJwt, createNewConversations);
     app.post('/api/conversations/:conversation_id/expire', verifyJwt, setConversationMessageExpireMinutes);
+    app.post('/api/conversations/:conversation_id/background', verifyJwt, setConversationBackground);
     app.get('/api/conversation/find/:receiver_id', verifyJwt, findConversation);
 
     app.get('/api/messages/', verifyJwt, getMessages);

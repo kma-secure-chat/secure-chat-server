@@ -140,6 +140,25 @@ exports.setConversationMessageExpireMinutes = async (req, res) => {
     });
 };
 
+exports.setConversationBackground = async (req, res) => {
+    const { conversation_id } = req.params;
+    const { background } = req.body;
+
+    pool.query('UPDATE conversations SET background = $1 WHERE id = $2 RETURNING *', [background, conversation_id], (error, results) => {
+        if (error) {
+            throw error;
+        }
+        if (results.rows.length > 0) {
+            res.status(200).send({
+                message: 'Background updated successfully',
+                data: results.rows[0]
+            });
+        } else {
+            res.status(404).send({ message: 'Conversation not found' });
+        }
+    });
+};
+
 exports.getMessages = async (req, res) => {
     const { conversation_id } = req.query;
     const { limit = 10 } = req.query;
