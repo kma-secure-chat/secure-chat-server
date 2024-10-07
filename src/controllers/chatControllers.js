@@ -61,7 +61,9 @@ exports.getConversations = async (req, res) => {
                     conversation_id
             ) unseen ON unseen.conversation_id = c.id
         WHERE
-            c.user_one_id = $1 OR c.user_two_id = $1;
+            c.user_one_id = $1 OR c.user_two_id = $1
+        ORDER BY
+            m.created_at DESC;
     `, [req.user.id], (error, results) => {
         if (error) {
             throw error;
